@@ -43,6 +43,7 @@ func (w *WorkerRepository) ExecuteVectorSimilarity(ctx context.Context,
 	strVector += "]"
 
 	sqlQuery := `select sr.service_id,
+						sr.service_type,
 						sr.base_transport,
 						se.url
 				from 	service_registry sr,
@@ -84,6 +85,7 @@ func (w *WorkerRepository) ExecuteVectorSimilarity(ctx context.Context,
 	
 	for rows.Next() {
 		err = rows.Scan(&embedResponse.ServiceId,
+						&embedResponse.ServiceType,
 						&embedResponse.Transport,
 						&embedResponse.Endpoint,
 		)

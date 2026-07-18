@@ -72,6 +72,7 @@ type EmbedQuery struct {
 
 type EmbedResponse struct {
 	ServiceId	string		`json:"service_id,omitempty"`
+	ServiceType	string		`json:"service_type,omitempty"`
 	Endpoint	string		`json:"endpoint,omitempty"`
 	Transport	string		`json:"transport,omitempty"`
 }
