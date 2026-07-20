@@ -1,0 +1,146 @@
+package http
+
+import (
+	"time"
+	"net/http"
+	"context"
+	"strings"
+	"encoding/json"	
+
+	"github.com/rs/zerolog"
+
+	"github.com/go-federated-registry/internal/domain/model"
+	"github.com/go-federated-registry/internal/domain/service"
+	
+	"go.opentelemetry.io/otel/trace"
+
+	go_core_midleware "github.com/eliezerraj/go-core/v2/middleware"
+	go_core_otel_trace "github.com/eliezerraj/go-core/v2/otel/trace"
+)
+
+// Global middleware reference for error handling
+var (
+	_ go_core_midleware.MiddleWare
+)
+
+type HttpRouters struct {
+	workerService 	*service.WorkerService
+	appServer		*model.AppServer
+	logger			*zerolog.Logger
+	tracerProvider 	*go_core_otel_trace.TracerProvider
+}
+
+// Helper to extract context with timeout and setup span
+func (h *HttpRouters) withContext(req *http.Request, spanName string) (context.Context, context.CancelFunc, trace.Span) {
+	ctx, cancel := context.WithTimeout(req.Context(), 
+		time.Duration(h.appServer.Server.CtxTimeout) * time.Second)
+	
+	h.logger.Info().
+			Ctx(ctx).
+			Str("func", spanName).Send()
+	
+	ctx, span := h.tracerProvider.SpanCtx(ctx, "adapter."+spanName, trace.SpanKindInternal)
+	return ctx, cancel, span
+}
+
+// Helper to get trace ID from context using middleware function
+func (h *HttpRouters) getTraceID(ctx context.Context) string {
+	return go_core_midleware.GetRequestID(ctx)
+}
+
+// Above create routers
+func NewHttpRouters(appServer *model.AppServer,
+					workerService *service.WorkerService,
+					appLogger *zerolog.Logger,
+					tracerProvider *go_core_otel_trace.TracerProvider) HttpRouters {
+	
+	logger := appLogger.With().
+				Str("package", "adapter.http").
+				Logger()
+			
+	logger.Info().
+			Str("func","NewHttpRouters").Send()
+
+	return HttpRouters{
+		workerService: workerService,
+		appServer: appServer,
+		logger: &logger,
+		tracerProvider: tracerProvider,
+	}
+}
+
+// Helper to write JSON response
+func (h *HttpRouters) writeJSON(w http.ResponseWriter, code int, data interface{}) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	
+	return json.NewEncoder(w).Encode(data)
+}
+
+// ErrorHandler creates an APIError with appropriate HTTP status based on error type
+func (h *HttpRouters) ErrorHandler(traceID string, err error) *go_core_midleware.APIError {
+	var httpStatusCode int = http.StatusInternalServerError
+
+	if strings.Contains(err.Error(), "context deadline exceeded") {
+		httpStatusCode = http.StatusGatewayTimeout
+	}
+
+	if strings.Contains(err.Error(), "check parameters") {
+		httpStatusCode = http.StatusBadRequest
+	}
+
+	if strings.Contains(err.Error(), "not found") {
+		httpStatusCode = http.StatusNotFound
+	}
+
+	if strings.Contains(err.Error(), "duplicate key") || 
+	   strings.Contains(err.Error(), "unique constraint") {
+		httpStatusCode = http.StatusBadRequest
+	}
+
+	return go_core_midleware.NewAPIError(err, traceID, httpStatusCode)
+}
+
+// About return a health, without log and trace to avoid flush then in K8 
+func (h *HttpRouters) Health(rw http.ResponseWriter, req *http.Request) {
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusOK)
+
+	json.NewEncoder(rw).Encode(model.MessageRouter{Message: "true"})
+}
+
+// About return a live, without log and trace to avoid flush then in K8 
+func (h *HttpRouters) Live(rw http.ResponseWriter, req *http.Request) {
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusOK)
+
+	json.NewEncoder(rw).Encode(model.MessageRouter{Message: "true"})
+}
+
+// About show all header received
+func (h *HttpRouters) Header(rw http.ResponseWriter, req *http.Request) {
+	h.logger.Info().
+			Str("func","Header").Send()
+	
+	json.NewEncoder(rw).Encode(req.Header)
+}
+
+// About show all context values
+func (h *HttpRouters) Context(rw http.ResponseWriter, req *http.Request) {
+	h.logger.Info().
+			Str("func","Context").Send()
+	
+	json.NewEncoder(rw).Encode(req.Context())
+}
+
+// About info
+func (h *HttpRouters) Info(rw http.ResponseWriter, req *http.Request) {
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusOK)
+
+	_, cancel, span := h.withContext(req, "Info")
+	defer cancel()
+	defer span.End()
+
+	json.NewEncoder(rw).Encode(h.appServer)
+}
