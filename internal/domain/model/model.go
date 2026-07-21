@@ -53,7 +53,7 @@ type Endpoint struct {
 type APIError struct {
 	StatusCode	int    `json:"statusCode"`
 	Msg			string `json:"message"`
-	TraceId		string `json:"request-id,omitempty"`
+	TraceId		string `json:"x-request-id,omitempty"`
 }
 
 type Query struct {
