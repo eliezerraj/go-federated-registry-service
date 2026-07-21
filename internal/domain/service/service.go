@@ -41,7 +41,7 @@ func (s *WorkerService) buildHeaders(ctx context.Context) map[string]string {
 	requestID := go_core_midleware.GetRequestID(ctx)
 	return map[string]string{
 		"Content-Type":  "application/json;charset=UTF-8",
-		"X-Request-Id":  requestID,
+		"x-request-id":  requestID,
 	}
 }
 
